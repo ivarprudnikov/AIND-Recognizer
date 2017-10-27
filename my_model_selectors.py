@@ -69,8 +69,8 @@ class SelectorBIC(ModelSelector):
     http://www2.imm.dtu.dk/courses/02433/doc/ch6_slides.pdf
     Bayesian information criteria: BIC = -2 * logL + p * logN
     L is the likelihood of the fitted model (model.score())
-    p is the number of parameters (? params used for training, `delta-x` `nose-x`)
-    N is the number of data points (n_components or num_states)
+    p is the number of free parameters
+    N is the size of the dataset
 
     BIC applies a larger penalty when N > e^2 = 7.4
     """
@@ -116,13 +116,19 @@ class SelectorDIC(ModelSelector):
     http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.58.6208&rep=rep1&type=pdf
     https://pdfs.semanticscholar.org/ed3d/7c4a5f607201f3848d4c02dd9ba17c791fc2.pdf
     DIC = log(P(X(i)) - 1/(M-1)SUM(log(P(X(all but i))
+
+    ^^^ here addition of second term is missing which means that it is 0(when all models are equal)
+    ^^^ here alfa param is set to `1` as seen in `alfa/(M-1)`
+
     '''
 
     def dic_score(self, states):
         model = self.base_model(states)
-        mean_score = np.mean(
-            [model.score(self.hwords[w][0], self.hwords[w][1]) for w in self.words if w != self.this_word])
-        dic_score = model.score(self.X, self.lengths) - mean_score
+        alpha = 1
+        M = len(self.words)
+        likelihood = model.score(self.X, self.lengths)
+        antilikelihood = alpha/(M-1) * math.fsum([model.score(self.hwords[w][0], self.hwords[w][1]) for w in self.words if w != self.this_word])
+        dic_score = likelihood - antilikelihood
         return model, dic_score
 
     def select(self):
