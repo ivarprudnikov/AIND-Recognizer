@@ -171,6 +171,10 @@ class SelectorCV(ModelSelector):
                 scores.append(train_score)
             except:
                 pass
+
+        if len(scores) < 1:
+            return -math.inf, num_states
+
         return np.mean(scores), num_states
 
     def select(self):
