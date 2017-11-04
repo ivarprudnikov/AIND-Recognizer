@@ -1,12 +1,8 @@
-import concurrent.futures
 import math
-import time
 import warnings
-
 import numpy as np
 from hmmlearn.hmm import GaussianHMM
 from sklearn.model_selection import KFold
-
 from asl_utils import combine_sequences
 
 
@@ -124,7 +120,7 @@ class SelectorDIC(ModelSelector):
 
     def dic_score(self, states):
         model = self.base_model(states)
-        alpha = 1
+        alpha = 0.2
         M = len(self.words)
         likelihood = model.score(self.X, self.lengths)
         antilikelihood = alpha/(M-1) * math.fsum([model.score(self.hwords[w][0], self.hwords[w][1]) for w in self.words if w != self.this_word])
@@ -155,42 +151,44 @@ class SelectorCV(ModelSelector):
     ''' select best model based on average log Likelihood of cross-validation folds
     # args: sequences, Xlengths, word, min_n_components=2, max_n_components=15, random_state = 14
     '''
+    def avg_log(self, sequences, num_states: int):
+        scores = list()
+
+        if len(sequences) < 2:
+            return -math.inf, num_states
+
+        min_split = 2
+        sequence_split = int(len(sequences) * 0.7)
+        n_splits = max(min_split, sequence_split)
+
+        kf = KFold(n_splits=n_splits)
+        for train_index, test_index in kf.split(sequences):
+            try:
+                train_x, train_length = combine_sequences(train_index, sequences)
+                test_x, test_length = combine_sequences(test_index, sequences)
+                train_fitted_model = GaussianHMM(n_components=num_states, n_iter=1000).fit(train_x, train_length)
+                train_score = train_fitted_model.score(test_x, test_length)
+                scores.append(train_score)
+            except:
+                pass
+        return np.mean(scores), num_states
 
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        start = time.time()  # let's see how long this takes
-
         min = self.min_n_components
         max = self.max_n_components
-        lowest_log = math.inf
+        highest_log = -math.inf
         best_n_components = None
 
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            for avgLog, n in executor.map(lambda params: avg_log(*params),
-                                          [[self.sequences, i] for i in range(min, max + 1)]):
-                if avgLog < lowest_log:
-                    lowest_log = avgLog
+        for i in range(min, max + 1):
+            try:
+                avg_log, n = self.avg_log(self.sequences, i)
+                if avg_log > highest_log:
+                    highest_log = avg_log
                     best_n_components = n
-
-        finish = time.time()
-
-        print(f'time taken: {finish-start}')
+            except:
+                pass
 
         return self.base_model(best_n_components)
 
-
-def avg_log(sequences, num_states: int):
-    scores = list()
-    n_splits = min(3, len(sequences))  # make sure that splits will have smaller test data
-    kf = KFold(n_splits=n_splits)
-    for train_index, test_index in kf.split(sequences):
-        try:
-            train_x, train_length = combine_sequences(train_index, sequences)
-            test_x, test_length = combine_sequences(test_index, sequences)
-            train_fitted_model = GaussianHMM(n_components=num_states, n_iter=1000).fit(train_x, train_length)
-            train_score = train_fitted_model.score(test_x, test_length)
-            scores.append(train_score)
-        except:
-            pass
-    return np.mean(scores), num_states
